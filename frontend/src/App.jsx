@@ -7,7 +7,6 @@ function App() {
   const [token, setToken] = useState(null);
 
   useEffect(() => {
-    // Check local storage for a token when the app loads
     const storedToken = localStorage.getItem('chromaverse-token');
     if (storedToken) {
       setToken(storedToken);
@@ -16,7 +15,6 @@ function App() {
 
   const handleSetToken = (newToken) => {
     setToken(newToken);
-    // Store the token in local storage to persist login
     localStorage.setItem('chromaverse-token', newToken);
   };
 
@@ -25,21 +23,21 @@ function App() {
     localStorage.removeItem('chromaverse-token');
   };
 
+  // If there's no token, show the centered AuthPage
+  if (!token) {
+    return <AuthPage setToken={handleSetToken} />;
+  }
+
+  // If there IS a token, show the main application layout
   return (
     <div className="app-container">
       <header className="app-header">
         <h1>Chromaverse</h1>
-        {token && <button onClick={handleLogout} className="logout-button">Logout</button>}
+        <button onClick={handleLogout} className="logout-button">Logout</button>
       </header>
-      
-      {token ? (
-        <HomePage token={token} />
-      ) : (
-        <AuthPage setToken={handleSetToken} />
-      )}
+      <HomePage token={token} />
     </div>
   );
 }
 
 export default App;
-

@@ -1,10 +1,11 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 from typing import List, Optional
 
-# NEW: Base schema for a creation
+# --- Creation Schemas ---
 class CreationBase(BaseModel):
     prompt: str
-    image_filename: str
+    filename: str
+    type: str # NEW: Add type field
 
 class CreationCreate(CreationBase):
     pass
@@ -14,19 +15,22 @@ class Creation(CreationBase):
     owner_id: int
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 # --- User Schemas ---
 class UserBase(BaseModel):
     username: str
+    email: EmailStr
 
 class UserCreate(UserBase):
     password: str
 
-# Update the User schema to include the list of creations
 class User(UserBase):
     id: int
     creations: List[Creation] = []
 
     class Config:
-        orm_mode = True
+        from_attributes = True
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
