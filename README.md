@@ -3,7 +3,6 @@
 
 Chromaverse is a full-stack web application designed as a creative suite where users can generate unique AI-powered art and music from text prompts. It features a secure, user-specific environment and a personal gallery to save and revisit all creations.
 
-(Note: You can replace this link with a screenshot of your own application!)
 
 Features
 Dual AI Generation Modes: Seamlessly switch between generating visual art and composing audio tunes.
