@@ -3,6 +3,7 @@ import requests
 import uuid 
 import io
 import time
+import base64
 from typing import List, Optional
 from fastapi import FastAPI, Depends, HTTPException, status
 from pydantic import BaseModel, EmailStr
@@ -15,6 +16,11 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 import auth, models, schemas
 from database import SessionLocal, engine
+
+# --- THIS IS THE FIX ---
+# Load environment variables once at the start of the application.
+# This is a more robust method and ensures the keys are available globally.
+load_dotenv()
 
 # Create directories to store generated files
 os.makedirs("generated_images", exist_ok=True)
@@ -88,15 +94,20 @@ class Prompt(BaseModel):
     text: str
     style: Optional[str] = "photographic"
 
+
 @app.post("/generate-image/", response_model=schemas.Creation)
 async def generate_image(prompt: Prompt, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    load_dotenv()
     HF_API_KEY = os.getenv("HUGGINGFACE_API_KEY")
-    API_URL = "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-xl-base-1.0"
+    if not HF_API_KEY:
+        raise HTTPException(status_code=500, detail="Hugging Face API key not configured.")
+
+    API_URL = "https://api-inference.huggingface.co/models/runwayml/stable-diffusion-v1-5"
     headers = {"Authorization": f"Bearer {HF_API_KEY}"}
     payload = {"inputs": f"{prompt.text}, {prompt.style} style"}
+    
     response = requests.post(API_URL, headers=headers, json=payload)
-    if response.status_code != 200: raise HTTPException(status_code=500, detail=f"Error from AI service: {response.text}")
+    if response.status_code != 200:
+        raise HTTPException(status_code=500, detail=f"Error from AI service: {response.text}")
     
     image_bytes = response.content
     filename = f"{uuid.uuid4()}.jpeg"
@@ -111,48 +122,30 @@ async def generate_image(prompt: Prompt, db: Session = Depends(get_db), current_
 
 @app.post("/generate-music/", response_model=schemas.Creation)
 async def generate_music(prompt: Prompt, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    load_dotenv()
-    REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
-    if not REPLICATE_API_TOKEN:
-        raise HTTPException(status_code=500, detail="Replicate API key not configured.")
+    GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+    if not GEMINI_API_KEY:
+        raise HTTPException(status_code=500, detail="Gemini API key not configured.")
+    
+    API_URL = f"https://texttospeech.googleapis.com/v1/text:synthesize?key={GEMINI_API_KEY}"
+    headers = {'Content-Type': 'application/json'}
+    payload = {
+        "input": {"text": prompt.text},
+        "voice": {"languageCode": "en-US", "ssmlGender": "NEUTRAL"},
+        "audioConfig": {"audioEncoding": "MP3"}
+    }
+    
+    response = requests.post(API_URL, headers=headers, json=payload)
+    if response.status_code != 200:
+        raise HTTPException(status_code=500, detail=f"Error from Gemini Audio API: {response.text}")
 
-    # Step 1: Start the music generation process on Replicate
-    start_response = requests.post(
-        "https://api.replicate.com/v1/predictions",
-        headers={"Authorization": f"Token {REPLICATE_API_TOKEN}", "Content-Type": "application/json"},
-        json={
-            "version": "8cf61ea6c56afd61d8f5b9ffd14d7c216c0a93844ce2d82ac1c9ecc9c7f24e05",
-            "input": {"prompt_a": prompt.text},
-        },
-    )
-    start_data = start_response.json()
-    prediction_id = start_data.get("id")
-    if not prediction_id:
-        raise HTTPException(status_code=500, detail=f"Failed to start music generation: {start_data.get('detail')}")
+    response_data = response.json()
+    try:
+        audio_content = response_data.get('audioContent')
+        music_bytes = base64.b64decode(audio_content)
+    except (TypeError, KeyError):
+        raise HTTPException(status_code=500, detail=f"Unexpected response from Gemini Audio API: {response_data}")
 
-    # Step 2: Poll for the result until it's ready
-    status_url = f"https://api.replicate.com/v1/predictions/{prediction_id}"
-    music_output_url = None
-    for _ in range(60): # Poll for up to 60 seconds
-        time.sleep(1)
-        status_response = requests.get(status_url, headers={"Authorization": f"Token {REPLICATE_API_TOKEN}"})
-        status_data = status_response.json()
-        if status_data.get("status") == "succeeded":
-            music_output_url = status_data["output"]
-            break
-        elif status_data.get("status") == "failed":
-            raise HTTPException(status_code=500, detail=f"Music generation failed: {status_data.get('error')}")
-
-    if not music_output_url:
-        raise HTTPException(status_code=500, detail="Music generation timed out.")
-
-    # Step 3: Download the generated audio file
-    music_response = requests.get(music_output_url)
-    if music_response.status_code != 200:
-        raise HTTPException(status_code=500, detail="Failed to download generated music file.")
-
-    music_bytes = music_response.content
-    filename = f"{uuid.uuid4()}.wav"
+    filename = f"{uuid.uuid4()}.mp3"
     filepath = os.path.join("generated_music", filename)
     with open(filepath, "wb") as f: f.write(music_bytes)
 
